@@ -1,9 +1,28 @@
 # QPID-demo
 A demo of PID controller based on quantum computing
 
-Time goes by. I decide to go back to my research :) This demo is a PID controller. Compared to the classical PID controller, I used the parameters of one Qubit which are mapped to Kp, Ki, and Kd.  This demo is initial. It can only control the DC motor. But it has some properties:
-1. one-step iteration: After just one-step iteration, it will find the parameters.
-2. the ability to track some complex signal, like sin, square and so on.
+This demo is a PID controller. Compared to the classical PID controller, I used Quantum Circuit to map the measurements  Kp, Ki, and Kd. 
+In detail, this repository contains two implementations of a quantum-classical hybrid control system for BLDC motors:
+
+## Main Branch (Full Implementation)
+- Complete quantum state reconstruction
+- PID parameters mapped from θ and φ:
+  - P = (cos(θ) + 1)/2
+  - I = φ/(2π)
+  - D = cos(θ)
+- Theoretical rigor with proven results
+
+## Simplified Branch
+- Direct measurement mapping
+- Simplified quantum circuits
+- More resource-efficient
+- Equally effective control performance
+
+Both implementations demonstrate successful BLDC motor speed control with:
+- Fast response time
+- Minimal overshoot
+- Stable steady-state performance
+
 
 This is the result of the response of the step signal.
 ![myplot2](https://github.com/user-attachments/assets/dfab5586-88d6-44ef-8797-9f3c818dba90)
