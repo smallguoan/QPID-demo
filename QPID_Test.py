@@ -28,7 +28,7 @@ class QuantumPIDController:
         Construst PID transfer function
         """
         num = [Kd, Kp, Ki]  # Kd*s^2 + Kp*s + Ki
-        den = [0.125, 1.5, 0, 0.00005]  # 0.5*s^3+s^2+s
+        den = [0.00125, 2, 0.01, 0.005]  # 0.5*s^3+s^2+s
         return tf(num, den)
 
     def get_closed_loop_tf(self, pid_tf):
@@ -80,41 +80,71 @@ class QuantumPIDController:
         return real_p, real_i, real_d
 
     def create_quantum_circuit(self, error):
-        """Create a quantum circuit to measure theta and phi"""
-        qr = QuantumRegister(2, 'q')
-        cr = ClassicalRegister(3, 'c')
-        qc = QuantumCircuit(qr, cr)
+        """Create quantum circuits for all measurements"""
+        # 创建三个电路：z基，x基，y基测量
+        qr_z = QuantumRegister(1, 'q')
+        cr_z = ClassicalRegister(1, 'c')
+        qc_z = QuantumCircuit(qr_z, cr_z)
 
-        qc.h(qr[0])
-        qc.h(qr[1])
-
+        # 准备初始态并应用旋转
         error_angle = np.pi * np.clip(error / 1000, -1, 1)
+        qc_z.rx(error_angle, qr_z[0])
+        qc_z.measure(qr_z, cr_z)
 
-        qc.rx(error_angle, qr[0])
-        qc.rz(error_angle, qr[1])
+        # x基测量电路
+        qr_x = QuantumRegister(1, 'q')
+        cr_x = ClassicalRegister(1, 'c')
+        qc_x = QuantumCircuit(qr_x, cr_x)
+        qc_x.rx(error_angle, qr_x[0])
+        qc_x.h(qr_x[0])  # 转换到x基
+        qc_x.measure(qr_x, cr_x)
 
-        qc.measure_all()
+        # y基测量电路
+        qr_y = QuantumRegister(1, 'q')
+        cr_y = ClassicalRegister(1, 'c')
+        qc_y = QuantumCircuit(qr_y, cr_y)
+        qc_y.rx(error_angle, qr_y[0])
+        #qc_y.sdg(qr_y[0])  # S†门
+        #qc_y.h(qr_y[0])  # Hadamard门
+        qc_y.ry(error_angle/2,qr_y[0])
+        qc_y.measure(qr_y, cr_y)
 
-        return qc
+        return qc_z, qc_x, qc_y
 
-    def get_quantum_measurements(self, qc):
-        """get the result of measurement"""
+    def get_quantum_measurements(self, circuits):
+        """Get measurements in all bases"""
+        qc_z, qc_x, qc_y = circuits
         backend = qiskit_aer.AerSimulator()
-        job = backend.run(qc, shots=1000)
-        counts = job.result().get_counts()
 
-        z_measurement = 0
-        x_measurement = 0
-        total_shots = 1000
+        # 执行所有测量
+        job_z = backend.run(qc_z, shots=1000)
+        job_x = backend.run(qc_x, shots=1000)
+        job_y = backend.run(qc_y, shots=1000)
 
-        for key, value in counts.items():
-            if key[0] == '1':
-                z_measurement += value / total_shots
-            if key[1] == '1':
-                x_measurement += value / total_shots
+        # 获取结果
+        counts_z = job_z.result().get_counts()
+        counts_x = job_x.result().get_counts()
+        counts_y = job_y.result().get_counts()
+        print(counts_z)
+        print(counts_x)
+        print(counts_y)
+        # 计算期望值
+        z_exp = (counts_z.get('0', 0) - counts_z.get('1', 0)) / 1000
+        x_exp = (counts_x.get('0', 0) - counts_x.get('1', 0)) / 1000
+        y_exp = (counts_y.get('0', 0) - counts_y.get('1', 0)) / 1000
 
-        theta = np.arccos(2 * z_measurement - 1)
-        phi = 2 * np.pi * x_measurement
+        # 计算角度
+        theta = np.arccos(z_exp)
+        phi = np.arctan2(y_exp, x_exp)
+        if phi < 0:
+            phi += 2 * np.pi
+
+        print("Debug info:")
+        print(f"Z measurement: {z_exp}")
+        print(f"X measurement: {x_exp}")
+        print(f"Y measurement: {y_exp}")
+        print(f"Calculated theta: {theta}")
+        print(f"Calculated phi: {phi}")
 
         return theta, phi
 
@@ -126,20 +156,20 @@ def simulate_system():
     # Time Span
     t = np.linspace(0, 50, 1000)
     # print(t)
-    qc = controller.create_quantum_circuit(1)  # 假设初始误差为100
-    theta, phi = controller.get_quantum_measurements(qc)
+    qc_z,qc_x,qc_y = controller.create_quantum_circuit(90)  # 假设初始误差为100
+    theta, phi = controller.get_quantum_measurements([qc_z,qc_x,qc_y])
     p, i, d = controller.quantum_state_to_pid(theta, phi)
     real_p, real_i, real_d = controller.map_to_real_pid(p, i, d)
 
     # Response
-    t, y, s = controller.system_response(real_p, real_i, real_d, t, signal=1)
+    t, y, s = controller.system_response(real_p, real_i, real_d, t, signal=90)
 
     # y, t= multi_iteration(T=t,controller=controller)
     # print(y)
     # Plot the result
     plt.figure(figsize=(10, 6))
-    plt.plot(t, y * 1000, 'b-', label='Speed')
-    plt.plot(t, [1000] * len(t), 'r--', label='Setpoint')
+    plt.plot(t, y , 'b-', label='Speed')
+    plt.plot(t, [90] * len(t), 'r--', label='Setpoint')
     plt.xlabel('Time (s)')
     plt.ylabel('Speed (rpm)')
     plt.title('BLDC Motor Speed Control with Quantum PID')
