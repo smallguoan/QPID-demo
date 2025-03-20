@@ -156,13 +156,13 @@ def simulate_system():
     # Time Span
     t = np.linspace(0, 50, 1000)
     # print(t)
-    qc_z,qc_x,qc_y = controller.create_quantum_circuit(90)  # 假设初始误差为100
+    qc_z,qc_x,qc_y = controller.create_quantum_circuit(100)  # 假设初始误差为100
     theta, phi = controller.get_quantum_measurements([qc_z,qc_x,qc_y])
     p, i, d = controller.quantum_state_to_pid(theta, phi)
     real_p, real_i, real_d = controller.map_to_real_pid(p, i, d)
 
     # Response
-    t, y, s = controller.system_response(real_p, real_i, real_d, t, signal=90)
+    t, y, s = controller.system_response(real_p, real_i, real_d, t, signal=1000)
 
     # y, t= multi_iteration(T=t,controller=controller)
     # print(y)
