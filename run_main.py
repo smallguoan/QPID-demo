@@ -11,7 +11,7 @@ from inverse_dynamic_func import LevenbegMarquardtIK
 from QPID_POS import QuantumPIDController,simulate_system
 
 # Set api key of deepseek
-client = OpenAI(api_key="sk-5760344ae0cc477a9257db4f2f97cd73",base_url="https://api.deepseek.com")  # 替换为你的API密钥
+client = OpenAI(api_key="YOUR API KEY",base_url="https://api.deepseek.com")  # 替换为你的API密钥
 
 # Load MuJoCo Model
 model = load_robot_description("ur10e_mj_description")
