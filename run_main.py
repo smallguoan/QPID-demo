@@ -12,7 +12,7 @@ from QPID_POS import QuantumPIDController,simulate_system
 from QIK import hybrid_quantum_ik
 
 # Set api key of deepseek
-client = OpenAI(api_key="sk-18b6745689d949a0af013fafacd4af8f",base_url="https://api.deepseek.com")  # 替换为你的API密钥
+client = OpenAI(api_key="YOUR KEY",base_url="https://api.deepseek.com")  # 替换为你的API密钥
 
 # Load MuJoCo Model
 model = load_robot_description("ur10e_mj_description")
