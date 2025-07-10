@@ -24,12 +24,14 @@ class LevenbegMarquardtIK:
                        min(q[i], self.model.jnt_range[i][1]))
 
     # Levenberg-Marquardt pseudocode implementation
-    def calculate(self, goal, init_q, body_id,error):
+    def calculate(self, init_q, ee_id,error):
         """Calculate the desire joints angles for goal"""
-        current_pose = self.data.body(body_id).xpos
+        current_pose = self.data.site_xpos[ee_id]
+        site_body_id = self.model.site_bodyid[ee_id]
+        point_local = self.model.site_pos[ee_id]
         # calculate jacobian
         if (np.linalg.norm(error) >= self.tol):
-            mujoco.mj_jac(self.model, self.data, self.jacp, self.jacr, goal, body_id)
+            mujoco.mj_jac(self.model, self.data, self.jacp, self.jacr, point_local, site_body_id)
             # calculate delta of joint q
             n = self.jacp.shape[1]
             I = np.identity(n)

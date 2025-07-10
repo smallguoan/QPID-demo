@@ -9,14 +9,15 @@ import matplotlib.pyplot as plt
 from robot_descriptions.loaders.mujoco import load_robot_description
 from inverse_dynamic_func import LevenbegMarquardtIK
 from QPID_POS import QuantumPIDController,simulate_system
+from QIK import hybrid_quantum_ik
 
 # Set api key of deepseek
-client = OpenAI(api_key="YOUR API KEY",base_url="https://api.deepseek.com")  # 替换为你的API密钥
+client = OpenAI(api_key="sk-18b6745689d949a0af013fafacd4af8f",base_url="https://api.deepseek.com")  # 替换为你的API密钥
 
 # Load MuJoCo Model
 model = load_robot_description("ur10e_mj_description")
 data = mujoco.MjData(model)
-data.qpos=[3 * np.pi / 2, -np.pi / 2, np.pi / 2, 3 * np.pi / 2, 3 * np.pi / 2, 0]
+data.qpos=[0, -np.pi / 2, np.pi / 2, 3 * np.pi / 2, 3 * np.pi / 2, 0]
 
 #Initialize the joint name and map to id
 joint_names = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
@@ -61,8 +62,8 @@ User: Move the end effector 0.4 in the z direction
 Assistant: { "action": "move_to", "position": [0,0,0.4], "speed": 0.1 }
 
 # Example 6
-User: Move the end effector 0.1 in x direction, 0.5 in y direction, and -0.1 in z direction
-Assistant: { "action": "move_to", "position": [0.1,0.5,-0.1], "speed": 0.1 }
+User: Move the end effector 0.01 in x direction, 0.05 in y direction, and -0.01 in z direction
+Assistant: { "action": "move_to", "position": [0.01,0.05,-0.01], "speed": 0.1 }
 """
 
 
@@ -164,8 +165,8 @@ def get_joint_angles(data):
 
 def get_effector_coordinate(model,data):
     """Get the coordinate of end effector"""
-    id= model.body('wrist_3_link').id
-    coord=data.body(id).xpos
+    id= mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
+    coord=data.site_xpos[id]
     return coord
 
 def degrees_to_radians(degrees):
@@ -272,7 +273,7 @@ def simulate_with_pid(data, target_angles,target_point=None ,duration=1.5, times
             pid_controllers[joint].reset()
     if task=='move_to':
         pid_controllers = {name: AdvancedPIDController(Kp=p,Ki=i,Kd=d,C1=c1,C2=c2,C3=c3, T=1e-4) for name in joint_indices.keys()}
-        id=model.body('wrist_3_link').id
+        id= mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
         renderer = mujoco.Renderer(model)
 
         # set the steps
@@ -295,18 +296,68 @@ def simulate_with_pid(data, target_angles,target_point=None ,duration=1.5, times
         # Get the outputs of the controller for every joint
         angle_history = {name: [] for name in joint_indices.keys()}
         time_points = []
+        print("\n=== Stage1: Classical IK--LM algorithm ===")
         # Initialize the Inverse Kinematic method
-        IK = LevenbegMarquardtIK(model, data, 0.5, 1e-3, 0.5, np.zeros((3, model.nv)), np.zeros((3, model.nv)), 0.15)
-        error = np.subtract(target_point, data.body(id).xpos)
+        IK = LevenbegMarquardtIK(model, data, 0.5, 1e-4, 0.5, np.zeros((3, model.nv)), np.zeros((3, model.nv)), 0.15)
+        error = np.subtract(target_point, data.site_xpos[id])
+        classical_final_qpos=None
         for step in range(steps):
             current_time = step * timestep
             time_points.append(current_time)
             # Get the current angles
             current_angles = get_joint_angles(data)
             # Calculate the target angles
-            target_qpos=IK.calculate(goal=target_point,init_q=data.qpos,body_id=id,error=error)
+            target_qpos=IK.calculate(init_q=data.qpos,ee_id=id,error=error)
             for i,name in enumerate(joint_names):
                 target_angles[name]= target_qpos[i]
+            torques = {}
+            for joint_name, target in target_angles.items():
+                if joint_name in current_angles:
+                    current = current_angles[joint_name]
+                    torque = pid_controllers[joint_name].compute(target, current, amp=20)
+                    torques[joint_name] = torque
+                    # pid_controllers[joint_name].reset()
+                    # Collect the history of angles
+                    angle_history[joint_name].append(radians_to_degrees(current))
+            # Apply torque to joints
+            apply_joint_torques(data, torques)
+
+            # Simulate by step
+            mujoco.mj_step(model, data)
+            error=np.subtract(target_point,data.site_xpos[id])
+            # Render every 10 times
+            if step % 10 == 0:
+                renderer.update_scene(data)
+                current_img = renderer.render()
+
+                plt.subplot(1, 2, 2)
+                plt.imshow(current_img)
+                plt.title("Current Status({}s)".format(current_time))
+                plt.axis('off')
+
+                plt.draw()
+                plt.pause(0.001)
+            classical_final_qpos=target_qpos
+        print("Classical final position:",data.site_xpos[id])
+        print("Classical error:",np.linalg.norm(data.site_xpos[id]-target_point,ord=2))
+        print("Finding solution by QAOA...")
+        ft_target_angle=hybrid_quantum_ik(target_pose=target_point,model=model,data=data,classic_solution=classical_final_qpos,bits_per_joint=4,p=2,search_radius=0.3)
+        initial_img=current_img
+        plt.figure(figsize=(15, 8))
+        plt.ion()
+
+        # Two figures：Initial status and current status
+        plt.subplot(1, 2, 1)
+        plt.imshow(initial_img)
+        plt.title("Previous status")
+        plt.axis('off')
+
+        for step in range(steps):
+            current_time = duration+step * timestep
+            time_points.append(current_time)
+            current_angles = get_joint_angles(data)
+            for i, name in enumerate(joint_names):
+                target_angles[name] = ft_target_angle[i]
             torques = {}
             for joint_name, target in target_angles.items():
                 if joint_name in current_angles:
@@ -321,8 +372,6 @@ def simulate_with_pid(data, target_angles,target_point=None ,duration=1.5, times
 
             # Simulate by step
             mujoco.mj_step(model, data)
-            error=np.subtract(target_point,data.body(id).xpos)
-            # Render every 10 times
             if step % 10 == 0:
                 renderer.update_scene(data)
                 current_img = renderer.render()
@@ -334,8 +383,9 @@ def simulate_with_pid(data, target_angles,target_point=None ,duration=1.5, times
 
                 plt.draw()
                 plt.pause(0.001)
-        print("Current effector position: ",data.body(id).xpos)
+        print("Current effector position: ",data.site_xpos[id])
         print("Target effector position: ",target_point)
+        print("Position error:",np.linalg.norm(data.site_xpos[id]-target_point,ord=2))
         for joint in joint_names:
             pid_controllers[joint].reset()
 
@@ -361,7 +411,7 @@ def simulate_with_pid(data, target_angles,target_point=None ,duration=1.5, times
 
 
 def execute_command(command, model, data,p,i,d,c1,c2,c3):
-    """执行解析后的命令"""
+    """Execute the parsed command"""
     if command["action"] == "error":
         print("Error,please try again")
         return False
@@ -384,15 +434,15 @@ def execute_command(command, model, data,p,i,d,c1,c2,c3):
                 print(f"Unknown Joint: {joint_name}")
 
         if target_angles:
-            # 获取当前角度
+            # Getting the current joint angles
             current_angles = get_joint_angles(data)
 
-            # 对于未指定的关节，使用当前角度作为目标
+            # For unspecified joints, use the current angle as the target
             for name in joint_indices.keys():
                 if name not in target_angles and name in current_angles:
                     target_angles[name] = current_angles[name]
 
-            # 使用PID控制器模拟运动
+            # Using PID controller
             final_angles = simulate_with_pid(data=data,target_angles=target_angles,task='joint_control',p=p,i=i,d=d,c1=c1,c2=c2,c3=c3)
             print("Instruction Finished.")
             print(f"Final angles: {', '.join([f'{k}: {radians_to_degrees(v):.2f}°' for k, v in final_angles.items()])}")
@@ -425,19 +475,19 @@ def main(p,i,d,c1,c2,c3):
     running = True
 
     while running:
-        # 获取用户指令
+        # Getting the instruction from the user
         instruction = input("\nPlease input instruction（input 'quit' to quit）: ")
 
         if instruction.lower() in ['退出', 'exit', 'quit']:
             running = False
             continue
 
-        # 解析指令
+        # Analyse the instruction
         print("Analyse the instruction...")
         command = parse_instruction(instruction)
         print(f"Command: {command}")
 
-        # 执行命令
+        # Execute
         success = execute_command(command, model,data,p,i,d,c1,c2,c3)
 
         if not success:
