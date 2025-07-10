@@ -54,6 +54,14 @@ Second
 This is the result of the response to the step signal.
 ![myplot2](https://github.com/user-attachments/assets/dfab5586-88d6-44ef-8797-9f3c818dba90)
 
+## (Update 2025/7/11)Simulation 
+- First Stage: LM algorithm
+<img width="1500" height="800" alt="Figure_1" src="https://github.com/user-attachments/assets/873c55ac-f347-4548-b842-09c0337784cb" />
+
+- Second Stage: Finetuning by QAOA
+<img width="1500" height="800" alt="Figure_3" src="https://github.com/user-attachments/assets/1db4f88c-a172-4610-842c-1f97ee0531fb" />
+
+
 ## (Update 2025/7/11)This is the result of the response for end-effector control using my hybrid method.
 <img width="1200" height="600" alt="Figure_4" src="https://github.com/user-attachments/assets/e7daee72-805c-4512-9b5e-99ec5cbf23d0" />
 
